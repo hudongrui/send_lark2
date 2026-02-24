@@ -1,0 +1,5 @@
+[IC_ETX]
+# Format: $IPV4_ADDR ssh_host=$HOSTNAME
+# Example: 127.0.0.1 ssh_host=localhost
+
+[IC_OTHER]

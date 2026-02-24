@@ -1,0 +1,21 @@
+{
+    "summary_ticket": 10,
+    "summary_ticket_rank": 1,
+    "summary_hours": 3,
+    "summary_pending": 0.5,
+    "open_id": "{user: dongruihu}",
+    "object_list_1": [
+        {
+            "name": "dongruihu",
+            "duration": "5h",
+            "diff": "m12%",
+            "diff_color": "red"
+        },
+        {
+            "name": "dongruihu",
+            "duration": "40min",
+            "diff": "20%",
+            "diff_color": "green"
+        }
+    ]
+}

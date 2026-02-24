@@ -1,0 +1,14 @@
+version: 'v1.0'
+services:
+  send_lark_webhook:
+    platform: linux/amd64
+    image: send_lark_webhook:v1.1.3
+    restart: on-failure
+    ports:
+      - "5000:5000" # TODO: Change this if needed.
+    environment:
+      - TZ=Asia/Shanghai
+      - LOG_PATH=/tmp/send_lark_webhook/log
+    volumes:
+      - /tmp/send_lark_webhook/log:/tmp/send_lark_webhook/log
+      - /Users/bytedance/PycharmProject/send_lark2/client/conf:/app/conf # TODO: Change this!

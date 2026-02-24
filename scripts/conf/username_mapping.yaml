@@ -1,0 +1,3 @@
+mapping:
+  - it_admin: [user1, user2]
+fuzzy_mapping:

@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+release/
+dist/
+wheels/
+*.db
+*.egg-info
+uv.lock
+.python-version
+conf/config.ini
+conf/username_mapping.yaml
+conf/logging_config.json
+
+# Virtual environments
+.venv/
+.idea/
+

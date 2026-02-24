@@ -1,0 +1,14 @@
+.venv/
+uv.lock
+.python-version
+.pytest_cache/
+*.log
+*.py[oc]
+wheels/
+*.egg-info
+__pycache__/
+.idea/
+ssl/
+.vscode/
+release/
+*.tar

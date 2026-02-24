@@ -1,0 +1,19 @@
+services:
+  lark_msg_service:
+    platform: linux/amd64
+    image: lark_msg_service:$VERSION  # TODO: Change this to your prod version
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=Asia/Shanghai
+      - LOG_PATH=/tmp/lark_msg_service/log
+    volumes:
+      - $LOG_PATH:/tmp/lark_msg_service/log  # TODO: Mount log & db path to local if needed.
+      - $DB_PATH:/app/db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:$PORT/hi"]  # TODO: Update port.
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

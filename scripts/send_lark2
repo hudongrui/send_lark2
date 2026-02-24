@@ -1,0 +1,473 @@
+#!/ic/software/tools/python3/3.8.8/bin/python3
+# -*- coding: utf-8 -*-
+################################
+# File Name   : send_lark2
+# Author      : dongruihu
+# Created On  : 2025-07-14 16:20
+# Description : A command-line tool for sending messages to Lark from IC RD environment.
+################################
+import os
+import sys
+import click
+import argparse
+import json
+from datetime import datetime
+from requests.exceptions import ConnectionError
+from configparser import ConfigParser
+from requests.exceptions import ReadTimeout
+from pathlib import Path
+from rich.console import Console
+from rich.table import Table
+from module.lark_client import *
+
+# GLOBAL VARIABLES
+DEMO_CARD_ID = "AAq9qitgU0Qqp"  # NOTE: Replace this with your own DEMO card ID.
+DEMO_REFERENCE_LINK = "https://open.feishu.cn/document/feishu-cards/feishu-card-cardkit/build-card-content"
+
+DEFAULT_QUERY_TIMEOUT = 30
+DEFAULT_PAYLOAD_SIZE = 2048
+MAX_DESCRIPTION_SIZE = 20
+DEFAULT_CONFIG_FILE = f"{os.path.dirname(os.path.realpath(__file__))}/conf/config.ini"
+USER_MAPPING_CONFIG = f"{os.path.dirname(os.path.realpath(__file__))}/conf/username_mapping.yaml"
+COLORS = 'blue,wathet,turquoise,green,yellow,orange,red,carmine,violet,purple,indigo,grey'
+
+DEBUG = "bold bright_black"
+WARNING = "bold yellow"
+ERROR = "bold red"
+
+
+# Load Config
+def load_config(config_file: Path):
+    try:
+        # Load config file
+        config = ConfigParser()
+        config.read(config_file)
+
+        # Set environment variables
+        os.environ['LARK_QUERY_TIMEOUT'] = config.get('default', 'QUERY_TIMEOUT')
+        os.environ['LARK_PAYLOAD_SIZE'] = config.get('default', 'PAYLOAD_SIZE')
+        os.environ['LARK_APP_ID'] = config.get('default', 'APP_ID')
+        os.environ['LARK_APP_SECRET'] = config.get('default', 'APP_SECRET')
+
+        os.environ['LARK_CLIENT_HOST'] = config.get('cli', 'CLIENT_HOST')
+        os.environ['LARK_CLIENT_PORT'] = config.get('cli', 'CLIENT_PORT')
+
+        return config
+    except Exception as e:
+        click.echo(f"Error loading config file: {str(e)}", err=True)
+        raise
+
+
+@timed
+def load_bd_config(config_file: Path):
+    global DEMO_CARD_ID, DEMO_REFERENCE_LINK
+    try:
+        # Load config file
+        config = ConfigParser()
+        config.read(config_file)
+
+        # Set environment variables
+        os.environ['LARK_QUERY_TIMEOUT'] = config.get('default', 'QUERY_TIMEOUT')
+        os.environ['LARK_PAYLOAD_SIZE'] = config.get('default', 'PAYLOAD_SIZE')
+        os.environ['LARK_APP_ID'] = config.get('default', 'APP_ID')
+        os.environ['LARK_APP_SECRET'] = config.get('default', 'APP_SECRET')
+
+        os.environ['LARK_CLIENT_HOST'] = config.get('cli_bd', 'CLIENT_HOST')
+        os.environ['LARK_CLIENT_PORT'] = config.get('cli_bd', 'CLIENT_PORT')
+
+        DEMO_CARD_ID = "AAqIE1ozhqhu5"  # For BD
+        DEMO_REFERENCE_LINK = "https://open.larkoffice.com/document/feishu-cards/feishu-card-cardkit/build-card-content"
+
+        return config
+    except Exception as e:
+        click.echo(f"Error loading config file: {str(e)}", err=True)
+        raise
+
+
+load_config(config_file=DEFAULT_CONFIG_FILE)
+
+
+class MultipleRecipientsType(click.ParamType):
+    name = 'recipients'
+
+    def convert(self, value, param, ctx):
+        # 检查上下文是否已经有recipients列表
+        if not hasattr(ctx, 'recipients_list'):
+            ctx.recipients_list = []
+
+        # 分割空格分隔的多个值
+        users = value.split()
+        ctx.recipients_list.extend(users)
+        return value  # 返回原始值（虽然我们实际上使用ctx.recipients_list）
+
+
+# 在命令函数中，我们需要一个装饰器来提取实际的收件人列表
+def extract_recipients(f):
+    @click.pass_context
+    def new_func(ctx, *args, **kwargs):
+        # 从上下文中获取实际的收件人列表
+        recipients = getattr(ctx, 'recipients_list', [])
+        # 将原始的recipients参数替换为处理后的列表
+        kwargs['recipients'] = recipients
+        return ctx.invoke(f, *args, **kwargs)
+
+    return new_func
+
+
+@timed
+def read_args():
+    parser = argparse.ArgumentParser()
+
+    # subparsers = parser.add_subparsers(dest='search', help='Command to execute')
+    # sub_parser = subparsers.add_parser('search', help='Foo command help')
+    # sub_parser.add_argument('--gn', help="Groupchat name")
+    # sub_args = sub_parser.parse_args()
+
+    # health_parser = subparsers.add_parser('health', help="Health metrics")
+    # health_args = search_args.parser_args()
+
+    ### SEARCH_GROUP_CHAT ###
+    parser.add_argument('-s', '--search',
+                        action='store_true',
+                        help="Search for group-chat information.")
+    parser.add_argument('-G', '--gn',
+                        default=None,
+                        help="Specify group-chat name")
+    parser.add_argument('-n', '--cn',
+                        default=None,
+                        help="Specify numeric chat id (For ByteDance domain only)")
+
+    ### HEALTH METRICS ###
+    parser.add_argument('-H', '--health',
+                        action='store_true',
+                        default=False,
+                        help="")
+
+    parser.add_argument('-i', '--card-id',
+                        default=None,
+                        help="")
+    parser.add_argument('-T', '--title',
+                        default="芯片事件平台通知")
+    parser.add_argument('-c', '--content',
+                        default="")
+    parser.add_argument('-C', '--header-color',
+                        choices=['blue', 'wathet', 'turquoise', 'green', 'yellow', 'orange', 'red', 'carmine', 'violet', 'purple', 'indigo', 'grey'],
+                        default='green',
+                        help='Specify lark message header color, default is "green".')
+    parser.add_argument('-g', '--group-chat',
+                        default=None)
+    parser.add_argument('-D', '--demo',
+                        action='store_true',
+                        default=False)
+    parser.add_argument('-B', '--bd',
+                        action='store_true',
+                        default=False)
+    parser.add_argument('-d', '--debug',
+                        action='store_true',
+                        default=False)
+    parser.add_argument('-r', '--recipients',
+                        nargs='+',
+                        default=[])
+
+    # Secret option to bypass ip_filter
+    parser.add_argument('-S', '--secret',
+                        default=None,
+                        help="")
+
+    args = parser.parse_args()
+    actual_recipients = []
+
+    if args.search:
+        search(gn=args.gn, cn=args.cn, debug=args.debug, bd=args.bd)
+
+    elif args.health:
+        health()
+
+    elif args.demo:
+        send(demo=args.demo,
+             debug=args.debug,
+             bd=args.bd
+        )
+    elif args.recipients:
+        r = args.recipients
+        if len(r) == 1:
+            actual_recipients = r[0].split(',')
+        else:
+            actual_recipients = args.recipients
+
+        # print(f"Actual recipients: {actual_recipients}")
+        # print(f"Card ID: {args.card_id}")
+        # print(f"Content: {args.content}")
+        send(demo=args.demo,
+             bd=args.bd,
+             debug=args.debug,
+             card_id=args.card_id,
+             content=args.content,
+             title=args.title,
+             header_color=args.header_color,
+             group_chat=args.group_chat,
+             recipients=actual_recipients,
+             secret=args.secret
+             )
+
+    else:
+        print("Invalid usage.")
+        sys.exit(-1)
+
+
+# MAIN CODE
+# 20250902 Added sub_command for prior usage.
+@timed
+def send(card_id: str = None, content: str = None, title: str = None, header_color: str = "green", group_chat: str = None, recipients: list = [], demo: bool = False, bd: bool = False, debug: bool = False, secret: str = None):
+    """
+    Send text or card message to Bytedance feishu
+    """
+
+    # console = Console()
+    is_text = True
+
+    # 0. Validate user input
+    if not demo and not content:
+        # console.print("Invalid usage. You must provide either --demo or -c option.", style=ERROR)
+        print("Invalid usage. You must provide either --demo or -c option.")
+        sys.exit(-1)
+
+    if card_id is not None:
+        if not is_json_data(content):
+            # console.print("Content is not a valid json data.", style=ERROR)
+            print("Content is not a valid json data.")
+            sys.exit(-1)
+        else:
+            is_text = False
+
+    if debug:
+        print("Content is not a valid json data.")
+
+    # Setup client
+    client = MessageClient(console=None, debug=debug, domain="bytedance" if bd else None, secret=secret)
+    client.set_user_mapping(USER_MAPPING_CONFIG)
+
+    if demo:
+        # client.enable_debug()
+        send_demo_msg(client, domain=bd)
+        sys.exit(0)
+
+    # 20250911 - For backward compatibility, supports space-separated username
+    # processed_recipients = []
+    # for r in recipients:
+    #     # Split any comma-separated_values
+    #     processed_recipients.extend(r.split(','))
+    #
+    # processed_recipients = [r.strip() for r in processed_recipients if r.strip()]
+    #
+    # if processed_recipients:
+    #     processed_recipients = processed_recipients.split(',')
+    # else:
+    #     processed_recipients = []
+    processed_recipients = recipients
+    recipients = client.get_translated_recipients(group_chat, processed_recipients)
+    content, title = client.preprocess_content(content, title, is_text=is_text)
+
+    # Send message
+    try:
+        if card_id:
+            _code, _msg, trace_id = client.send_card_msg(card_id=card_id, content=content, recipients=recipients)
+        else:
+            _code, _msg, trace_id = client.send_lark_msg(title=title, content=content, recipients=recipients, header_color=header_color)
+    except ConnectionError as e:
+        # console.print(f"Failed to connect webhook service: {e}", style=ERROR)
+        print(f"Failed to connect webhook service: {e}")
+        sys.exit(-1)
+    except ReadTimeout as e:
+        # console.print(f"Server timeout while processing request: {e}", style=ERROR)
+        print(f"Server timeout while processing request: {e}")
+        sys.exit(-1)
+
+    if _code != 0:  # Request return code.
+        if debug:
+            # console.print(f"API function call returned Failed.")
+            print(f"API function call returned Failed.")
+        sys.exit(-1)
+
+
+# sub_command: health check
+# @send_lark.command()
+@timed
+def health():
+
+    client = MessageClient(Console())
+    client.check_health()
+
+
+# sub_command: search chat id
+# @send_lark.command()
+# @click.option('--gn', required=False, default=None, help="Specify group-chat name", type=str)
+# @click.option('--cn', required=False, default=None, help="Specify numeric chat id (For ByteDance domain only)", type=str)
+# @click.option('-d', '--debug', default=False, help="Enable debug mode.", is_flag=True)
+@timed
+def search(gn: str, cn: str, debug: bool = False, bd: bool = False):
+    """
+    Get group-chat information.
+    [
+      {
+        "chat_id": 'oc_*',
+        "name": "测试消息群",
+        "description": "测试消息群",
+      },
+      ...
+    ]
+    """
+
+    console = Console()
+
+    # Validate input
+    if not gn and not cn:
+        console.print(f"Invalid usage.", style=ERROR)
+
+    # Process request
+    client = MessageClient(console, domain="bytedance" if bd else None)
+    if gn:
+        _code, _msg, data = client.get_chat_id(gn)
+        if _code != 0:
+            console.print(f"Failed to search group chat: {_msg}", style=ERROR)
+            sys.exit(-1)
+
+        elif len(data) == 0:
+            console.print(f"没有找到群: {gn}", style=ERROR)
+
+        elif len(data) == 1:
+            print(data[0].get('chat_id'))
+
+        else:
+            console.print(f"查询到多个群...", style=WARNING)
+            if debug:
+                console.print(f"code: {_code}, _msg: {_msg} | data: {data}", style=DEBUG)
+
+            # Create richtable
+            table = Table(title="Group Chat List", show_lines=True)
+
+            # Add columns
+            table.add_column("Chat ID", style="cyan", no_wrap=True)
+            table.add_column("Name", style="magenta")
+            table.add_column("Description", style="green")
+
+            # Add rows
+            for entry in data:
+                chat_id = entry.get("chat_id", 'N/A')
+                name = entry.get("name", 'N/A')
+                description = entry.get("description", 'N/A')
+                if description == "":
+                    description = "N/A"
+                else:
+                    if len(description) > MAX_DESCRIPTION_SIZE:
+                        description = f'{description[:MAX_DESCRIPTION_SIZE]}...'
+                table.add_row(chat_id, name, description)
+
+            console.print(table)
+    elif cn:
+        _code, _msg, open_chat_id = client.get_chat_id_from_feed(cn)
+        if _code != 0:
+            console.print(f"Failed to search group chat: {_msg}")
+            sys.exit(-1)
+        console.print(open_chat_id)
+
+
+@timed
+def is_json_data(content: str) -> bool:
+    """
+    Validate JSON data, could be path or json string.
+    """
+    _ok = True
+    if content == "":
+        return _ok
+
+    if os.path.isfile(content):
+        try:
+            with open(content, 'r') as f:
+                json.load(f)
+        except JSONDecodeError:
+            _ok = False
+    else:
+        try:
+            json.loads(content)
+        except JSONDecodeError:
+            _ok = False
+
+    return _ok
+
+
+@timed
+def send_demo_msg(client: MessageClient, domain: bool = False) -> None:
+    from rich.console import Console
+    console = Console()
+
+    users = ['%s@picoheart.com' % getuser()]
+
+    content = {
+        "passed_count": 10,
+        "failed_count": 2,
+        "pass_rate": '80%',
+        "pass_rate_color": "orange",
+        "username": ','.join(users),
+        "title": "IFP SRAM K-LIB report: TEST_DUT_CELL_A",
+        "full_report_path": "/ic/data/usr/dongruihu/cad/demo/log/path/run_gen_lib.log",
+        "result_list":
+            [
+                {
+                    "title": "tt_0p675v_85c_typical.combinational",
+                    "job_id": "59995745",
+                    "run_time": "00:15:19",
+                    "result": "Pass",
+                    "result_color": "green"
+                },
+                {
+                    "title": "tt_0p675v_85c_typical.constraint",
+                    "job_id": "59995741",
+                    "run_time": "00:10:23",
+                    "result": "Pass",
+                    "result_color": "green"
+                },
+                {
+                    "title": "tt_0p675v_85c_typical.pin_cap",
+                    "job_id": "59995743",
+                    "run_time": "-",
+                    "result": "Pend",
+                    "result_color": "grey"
+                },
+                {
+                    "title": "tt_0p675v_25c_typical.pin_cap",
+                    "job_id": "59995742",
+                    "run_time": "00:05:24",
+                    "result": "Fail",
+                    "result_color": "red"
+                }
+            ]
+    }
+
+    if not domain:
+        content.update({
+            "open_id": "{user: %s}" % getuser()
+        })
+
+    content_str = json.dumps(content)
+    recipients = [getuser()]
+
+    # with console.status(f"Sending demo card message to {','.join(recipients)}"):
+    with console.status(""):
+        try:
+            _, _code, _msg = client.send_card_msg(
+                card_id=DEMO_CARD_ID if not domain else BD_DEMO_CARD_ID,
+                content=content_str,
+                recipients=recipients
+            )
+        except ConnectionError as e:
+            console.print(f"Failed to connect webhook service: {e}", style=ERROR)
+            sys.exit(-1)
+
+    console.print(f":wrench: How to build your own Card Message Template: \t{DEMO_REFERENCE_LINK}", style=DEBUG)
+
+
+if __name__ == '__main__':
+    # send_lark()
+    read_args()
+    # (token, id, title, content, receivers, header_color, json, debug) = read_args()
