@@ -299,11 +299,6 @@ def health():
     client.check_health()
 
 
-# sub_command: search chat id
-# @send_lark.command()
-# @click.option('--gn', required=False, default=None, help="Specify group-chat name", type=str)
-# @click.option('--cn', required=False, default=None, help="Specify numeric chat id (For ByteDance domain only)", type=str)
-# @click.option('-d', '--debug', default=False, help="Enable debug mode.", is_flag=True)
 @timed
 def search(gn: str, cn: str, debug: bool = False, bd: bool = False):
     """

@@ -10,6 +10,7 @@ services:
       - LOG_PATH=/tmp/lark_msg_service/log
     volumes:
       - $LOG_PATH:/tmp/lark_msg_service/log  # TODO: Mount log & db path to local if needed.
+      - $CONF_PATH:/app/conf
       - $DB_PATH:/app/db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:$PORT/hi"]  # TODO: Update port.

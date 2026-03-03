@@ -17,9 +17,10 @@ VERSION = v1.0.9
 PORT = 5000
 LOG_PATH = /tmp/${APP}/log
 
-LARK_APP_ID = cli_a6cfca9fe87bd013
-LARK_APP_SECRET = bxADFWAvaHJ2rwNoWr67Wdx6Z7uJSfGz
-LARK_CARD_TEMPLATE_ID = AAqzQaSO1T5jw
+# FIXME: change here.
+LARK_APP_ID = 
+LARK_APP_SECRET = 
+LARK_CARD_TEMPLATE_ID = 
 
 
 # Helper functions to avoid annoying one-line scripts invokes from makefile

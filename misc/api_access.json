@@ -1,0 +1,25 @@
+{
+  "scopes": {
+    "tenant": [
+      "helpdesk:helpdesk:access",
+      "contact:contact.base:readonly",
+      "contact:user.email:readonly",
+      "contact:user.employee_id:readonly",
+      "contact:user.id:readonly",
+      "im:chat",
+      "im:chat.members:write_only",
+      "im:chat:read",
+      "im:message",
+      "im:message:send_as_bot",
+      "im:message:send_multi_users"
+    ],
+    "user": [
+      "contact:user.employee_id:readonly",
+      "im:chat",
+      "im:chat.members:write_only",
+      "im:chat:read",
+      "im:chat:readonly",
+      "im:message"
+    ]
+  }
+}
